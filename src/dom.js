@@ -212,6 +212,38 @@ function addAllRetryButtons() {
 }
 
 /**
+ * Rewrites the src URLs of all rendered comfyinject images in a message
+ * to use the current comfy_host setting. This fixes images when accessing
+ * SillyTavern from a different device (e.g. phone) where 127.0.0.1
+ * stored in the chat would point to the wrong machine.
+ * @param {number} index - The current message array index (for DOM lookup via mesid)
+ */
+function fixImageUrls(index) {
+    const settings = SillyTavern.getContext().extensionSettings[MODULE_NAME];
+    const host = (settings?.comfy_host || "http://127.0.0.1:8188").replace(/\/+$/, "");
+
+    const messageNode = document.querySelector(`[mesid="${index}"]`);
+    if (!messageNode) return;
+
+    const images = messageNode.querySelectorAll(".custom-comfyinject-image");
+    images.forEach((img) => {
+        const src = img.getAttribute("src") || "";
+        img.src = src.replace(/^https?:\/\/[^/]+/, host);
+    });
+}
+
+/**
+ * Rewrites image URLs for all rendered comfyinject images across the entire chat.
+ * Called after chat load to fix URLs from previous sessions.
+ */
+function fixAllImageUrls() {
+    const context = SillyTavern.getContext();
+    for (let i = 0; i < context.chat.length; i++) {
+        fixImageUrls(i);
+    }
+}
+
+/**
  * Processes a single message by index.
  * If it contains [[IMG: ... ]] markers, generates the images sequentially,
  * injects <img> tags into both the DOM and the mes field,
@@ -373,6 +405,7 @@ async function processMessage(index, options = {}) {
 
     // Add retry buttons via DOM manipulation (after ST renders the message)
     addRetryButtons(index);
+    fixImageUrls(index);
 
     // Save metadata keyed by send_date
     if (!context.chatMetadata[MODULE_NAME]) {
@@ -429,6 +462,7 @@ async function scanExistingMessages() {
 
     // Add retry buttons to all already-rendered images (including ones from previous sessions)
     addAllRetryButtons();
+    fixAllImageUrls();
 }
 
 /**
@@ -566,6 +600,7 @@ async function retryImage(sendDate, imgIndex) {
 
     // Re-add retry buttons since updateMessageBlock wipes the DOM
     addRetryButtons(messageIndex);
+    fixImageUrls(messageIndex);
 
     // Persist
     await context.saveMetadata();
@@ -589,8 +624,8 @@ export function initDom() {
         await scanExistingMessages();
     });
 
-    // Re-add retry buttons after swipes and edits since ST re-renders the message DOM
-    const reAddRetryButtons = (index) => setTimeout(() => addRetryButtons(index), 100);
+    // Re-add retry buttons and fix image URLs after swipes and edits since ST re-renders the message DOM
+    const reAddRetryButtons = (index) => setTimeout(() => { addRetryButtons(index); fixImageUrls(index); }, 100);
     eventSource.on(event_types.MESSAGE_SWIPED, reAddRetryButtons);
     eventSource.on(event_types.MESSAGE_UPDATED, reAddRetryButtons);
     eventSource.on(event_types.MESSAGE_EDITED, reAddRetryButtons);
